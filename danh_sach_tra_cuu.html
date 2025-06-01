@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tra cứu danh sách Liệt sĩ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f7f6; padding: 20px; }
+        .container { max-width: 960px; margin: 20px auto; background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        input[type="text"] { border: 1px solid #ccc; padding: 10px; border-radius: 4px; width: 70%; margin-right: 10px; }
+        button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        .message { color: #555; margin-top: 10px; text-align: center; }
+        .error-message { color: red; margin-top: 10px; text-align: center; }
+
+        /* Kiểu cho bảng kết quả */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .results-table th, .results-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top; /* Căn trên cho nội dung dài */
+            font-size: 0.85em; /* Kích thước chữ nhỏ hơn cho bảng */
+        }
+        .results-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            position: sticky;
+            top: 0; /* Giữ tiêu đề khi cuộn nếu có nhiều kết quả */
+            z-index: 10;
+        }
+        .results-table thead tr:first-child th {
+            background-color: #e0e0e0; /* Tiêu đề dòng 1 nổi bật hơn */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-2xl font-bold mb-6 text-center">Tra cứu danh sách Liệt sĩ</h1>
+        <div class="flex mb-6">
+            <input type="text" id="passcode-input" placeholder="Nhập Mã định danh (Passcode) của bạn" class="flex-grow">
+            <button onclick="filterList()">Tìm kiếm</button>
+        </div>
+        <div id="loading-message" class="message hidden">Đang tải dữ liệu...</div>
+        <div id="results" class="space-y-3">
+            <p class="message">Vui lòng nhập Mã định danh để xem thông tin.</p>
+        </div>
+        <div id="error-message" class="error-message hidden"></div>
+    </div>
+
+    <script>
+        // DÁN URL CSV của bạn vào đây. Đảm bảo nó nằm trên một dòng và kết thúc bằng dấu nháy đơn.
+        const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSd7-5u5fgt4Q5tl-RkuSSpT8HRxwON96eoBygKvA14KTbJy6Yy8TQ-c4FxiFuNCg/pub?output=csv&gid=187199195&single=true&widget=true&headers=false'; 
+        
+        let allRawLines = []; // Để lưu trữ tất cả các dòng thô từ CSV, bao gồm tiêu đề
+        let headersRow1 = []; // Tiêu đề dòng 1
+        let headersRow2 = []; // Tiêu đề dòng 2
+        let actualData = [];  // Dữ liệu thực tế, sau khi đã bỏ qua tiêu đề
+
+        const HEADER_ROWS_COUNT = 2; // Có 2 dòng tiêu đề
+        const PASSCODE_COLUMN_INDEX = 18; // Mã định danh (cột S) là chỉ mục 18 (0-indexed)
+        const NUMBER_OF_DATA_COLUMNS = 19; // Có 19 cột dữ liệu (A đến S)
+
+        const passcodeInput = document.getElementById('passcode-input');
+        const resultsDiv = document.getElementById('results');
+        const loadingMessage = document.getElementById('loading-message');
+        const errorMessage = document.getElementById('error-message');
+
+        // Hàm tải và phân tích dữ liệu CSV
+        async function loadData() {
+            loadingMessage.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            try {
+                const response = await fetch(GOOGLE_SHEET_CSV_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const csvText = await response.text();
+                
+                allRawLines = csvText.split('\n')
+                                     .filter(line => line.trim() !== ''); // Loại bỏ các dòng trống hoàn toàn
+
+                if (allRawLines.length < HEADER_ROWS_COUNT + 1) { // Phải có ít nhất 2 dòng tiêu đề + 1 dòng dữ liệu
+                    throw new Error("Dữ liệu CSV không đủ hoặc không đúng định dạng.");
+                }
+
+                // Lấy 2 dòng tiêu đề
+                headersRow1 = parseCsvLine(allRawLines[0]);
+                headersRow2 = parseCsvLine(allRawLines[1]);
+
+                // Lấy dữ liệu thực tế (bỏ qua các dòng tiêu đề)
+                actualData = allRawLines.slice(HEADER_ROWS_COUNT).map(line => parseCsvLine(line));
+                
+                // Lọc bỏ các hàng có thể không đủ cột sau khi parse (ví dụ: hàng trống cuối cùng)
+                actualData = actualData.filter(row => row.length > PASSCODE_COLUMN_INDEX);
+
+                loadingMessage.classList.add('hidden');
+                console.log('Dữ liệu đã tải thành công:', actualData.length, 'hàng thực tế');
+                // console.log('Tiêu đề dòng 1:', headersRow1);
+                // console.log('Tiêu đề dòng 2:', headersRow2);
+                // console.log('Hàng dữ liệu đầu tiên:', actualData[0]);
+
+            } catch (error) {
+                console.error('Lỗi khi tải dữ liệu:', error);
+                loadingMessage.classList.add('hidden');
+                errorMessage.textContent = 'Không thể tải dữ liệu. Vui lòng kiểm tra URL hoặc kết nối mạng.';
+                errorMessage.classList.remove('hidden');
+            }
+        }
+
+        // Hàm hỗ trợ phân tích một dòng CSV (đơn giản)
+        // Cảnh báo: split(',') không xử lý tốt các dấu phẩy bên trong dấu ngoặc kép.
+        // Nếu dữ liệu của bạn có dấu phẩy bên trong một ô, bạn cần một thư viện CSV parser mạnh mẽ hơn.
+        function parseCsvLine(line) {
+            return line.split(',');
+        }
+
+        // Hàm lọc và hiển thị danh sách
+        function filterList() {
+            const enteredPasscode = passcodeInput.value.trim();
+            resultsDiv.innerHTML = ''; // Xóa kết quả cũ
+            errorMessage.classList.add('hidden'); // Ẩn thông báo lỗi trước đó
+
+            if (enteredPasscode === '') {
+                resultsDiv.innerHTML = '<p class="message">Vui lòng nhập Mã định danh để xem thông tin.</p>';
+                return;
+            }
+
+            if (actualData.length === 0) {
+                resultsDiv.innerHTML = '<p class="message">Dữ liệu chưa được tải hoặc có lỗi. Vui lòng tải lại trang.</p>';
+                return;
+            }
+
+            const filteredResults = actualData.filter(row => {
+                // Kiểm tra đảm bảo cột Passcode tồn tại và khớp
+                // String(row[PASSCODE_COLUMN_INDEX]) để đảm bảo so sánh chuỗi
+                return row.length > PASSCODE_COLUMN_INDEX && 
+                       String(row[PASSCODE_COLUMN_INDEX]).trim() === enteredPasscode;
+            });
+
+            if (filteredResults.length > 0) {
+                const table = document.createElement('table');
+                table.className = 'results-table';
+                const thead = document.createElement('thead');
+                const tbody = document.createElement('tbody');
+
+                // Thêm dòng tiêu đề 1
+                let tr1 = document.createElement('tr');
+                headersRow1.slice(0, NUMBER_OF_DATA_COLUMNS).forEach(header => {
+                    let th = document.createElement('th');
+                    th.textContent = header;
+                    tr1.appendChild(th);
+                });
+                thead.appendChild(tr1);
+
+                // Thêm dòng tiêu đề 2
+                let tr2 = document.createElement('tr');
+                headersRow2.slice(0, NUMBER_OF_DATA_COLUMNS).forEach(header => {
+                    let th = document.createElement('th');
+                    th.textContent = header;
+                    tr2.appendChild(th);
+                });
+                thead.appendChild(tr2);
+
+                table.appendChild(thead);
+
+                // Thêm dữ liệu đã lọc
+                filteredResults.forEach(item => {
+                    let tr = document.createElement('tr');
+                    for (let i = 0; i < NUMBER_OF_DATA_COLUMNS; i++) { // Lặp qua tất cả 19 cột (A đến S)
+                        let td = document.createElement('td');
+                        td.textContent = item[i] || ''; // Hiển thị dữ liệu, nếu không có thì để trống
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                });
+
+                table.appendChild(tbody);
+                resultsDiv.appendChild(table);
+
+            } else {
+                resultsDiv.innerHTML = '<p class="message text-red-500">Không tìm thấy thông tin nào với Mã định danh này.</p>';
+            }
+        }
+
+        // Tải dữ liệu khi trang được tải
+        window.onload = loadData;
+
+        // Lắng nghe sự kiện Enter trên ô nhập passcode
+        passcodeInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                filterList();
+            }
+        });
+    </script>
+</body>
+</html>
